@@ -1,0 +1,60 @@
+#!/bin/bash
+
+# Step 1: Launch Nginx Container
+function launch_nginx_container() {
+  docker run -d -p port:port --name nginx_container -v "$(pwd)":/usr/share/nginx/html nginx:latest
+}
+
+# Step 2: Check Container Response Code
+function check_response_code() {
+  local response_code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:port)
+  if [ "$response_code" -eq 200 ]; then
+    echo "Container HTTP response code: $response_code (OK)"
+  else
+    echo "Container HTTP response code: $response_code (Error)"
+    send_notification "Container HTTP response code is not 200. Check CI pipeline!" "github" "email"
+  fi
+}
+
+# Step 3: Compare MD5 Sums
+function compare_md5_sums() {
+  local modified_md5=$(md5sum index.html | awk '{print $1}')
+  local container_md5=$(docker exec nginx_container md5sum /usr/share/nginx/html/index.html | awk '{print $1}')
+
+  if [ "$modified_md5" == "$container_md5" ]; then
+    echo "MD5 sums match (OK)"
+  else
+    echo "MD5 sums do not match (Error)"
+    send_notification "MD5 sums do not match. Check CI pipeline!" "github" "email"
+  fi
+}
+
+# Step 4: Send Notification
+function send_notification() {
+  local message="$1"
+  local notify_github="$2"
+  local notify_email="$3"
+
+  if [ "$notify_github" == "github" ]; then
+    # Replace <YOUR_GITHUB_ACCESS_TOKEN> and <YOUR_GITHUB_REPO> with your GitHub access token and repository.
+    # The script uses the GitHub API to create an issue in the repository.
+    curl -s -X POST -H "Authorization: token <YOUR_GITHUB_ACCESS_TOKEN>" -d "{\"title\":\"CI Error\",\"body\":\"$message\"}" "https://api.github.com/repos/<YOUR_GITHUB_REPO>/issues"
+  fi
+
+  if [ "$notify_email" == "email" ]; then
+    # Replace <YOUR_EMAIL_ADDRESS> with the email address where you want to receive notifications.
+    echo "$message" | mail -s "CI Error" <YOUR_EMAIL_ADDRESS>
+  fi
+}
+
+# Step 5: After CI Execution - Delete Container
+function delete_container() {
+  docker stop nginx_container
+  docker rm nginx_container
+}
+
+# Main CI tasks
+launch_nginx_container
+check_response_code
+compare_md5_sums
+delete_container
